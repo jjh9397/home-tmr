@@ -44,7 +44,7 @@ import com.github.javiersantos.appupdater.enums.UpdateFrom;
 import com.jakewharton.processphoenix.ProcessPhoenix;
 
 import org.apache.commons.math3.stat.descriptive.moment.StandardDeviation;
-import org.apache.http.client.methods.HttpPost;
+//import org.apache.http.client.methods.HttpPost;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -54,6 +54,7 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
@@ -64,6 +65,7 @@ import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 import fi.iki.elonen.NanoHTTPD;
 
@@ -71,9 +73,9 @@ public class MainActivity extends AppCompatActivity {
 
     //TMR control variables
     private String USER_ID;
-    private String DEFAULT_USER_ID = "DEFAULT";
-    private String USER_ID_FILE_NAME = "userID.txt";
-    private String DEFAULT_SETTINGS_FILE_NAME = "modelSettings.txt";
+    private final String DEFAULT_USER_ID = "DEFAULT";
+    private final String USER_ID_FILE_NAME = "userID.txt";
+    private final String DEFAULT_SETTINGS_FILE_NAME = "modelSettings.txt";
     float ONSET_CONFIDENCE=0.9f;
     int BUFFER_SIZE = 240;
     float E_STOP=0.85f; //emergency stop cueing
@@ -82,10 +84,10 @@ public class MainActivity extends AppCompatActivity {
     float CUE_NOISE_OFFSET=0.01f; //how much louder is the cue than the white noise
     float CUE_NOISE_MAX=0.01f; //how much louder can the cues get than white noise
     float MAX_ADAPTION_STEP=0.015f; //If cues seem to trigger a wakeup, drop the max volume we can reach by this much
-    long ONSET_DELAY=60*60*1000; //minimumj delay before cues start
+    long ONSET_DELAY=60*60*1000; //minimum delay before cues start
     long OFFSET_DELAY=8*60*60*1000;
     String FILE_DATA = ""; //data stored in the "files:" descriptor on github
-    boolean DEBUG_MODE=false; //if true, app simulates stage 3 sleep
+    boolean DEBUG_MODE=true; //if true, app simulates stage 3 sleep
     long turnedOnTime=0;
     int above_thresh=0;
     double backoff_time=0;
@@ -101,7 +103,7 @@ public class MainActivity extends AppCompatActivity {
     ToggleButton tmrStateButton;
     MediaPlayer whiteNoise;
     double maxNoise = 0.025;
-    Float whiteNoiseVolume = (1.0f * (float) maxNoise);
+    Float whiteNoiseVolume = (float) maxNoise;
     Float cueNoise;
     TextView volumeText;
     SeekBar volumeBar;
@@ -113,7 +115,7 @@ public class MainActivity extends AppCompatActivity {
     int FITBIT_WRITE_INTERVAL=10; //write fitbit data every 10 minutes
     String fitbitBuffer="";
     int fitbitCount=0;
-    ArrayList<Float> probBuffer=new ArrayList<Float>();
+    ArrayList<Float> probBuffer=new ArrayList<>();
 
 
     boolean conFixArm=false; //whether the app can self-restart
@@ -122,33 +124,37 @@ public class MainActivity extends AppCompatActivity {
         int data2 = (int) Long.parseLong(data[position+1], 16);
         byte d1b = (byte) data1;
         byte d2b = (byte) data2;
-        int val = ((d1b & 0xff) << 8) | (d2b & 0xff); //combine two bytes to get an int
-        return val;
+        return ((d1b & 0xff) << 8) | (d2b & 0xff);
     }
 
     public boolean isPluggedIn() {
         Intent intent = this.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        assert intent != null;
         int plugged = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1);
         return plugged == BatteryManager.BATTERY_PLUGGED_AC || plugged == BatteryManager.BATTERY_PLUGGED_USB || plugged == BatteryManager.BATTERY_PLUGGED_WIRELESS;
     }
 
-
     public String getDeviceName() {
         String manufacturer = Build.MANUFACTURER;
         String model = Build.MODEL;
-
-            return manufacturer+model;
-
+        return manufacturer+model;
     }
 
+    /**
+     * Used to self-restart the app if conFixArm when the user leaves the app.
+     * Only one restart is attempted if home is pressed. See wakeupHandler for subsequent actions done after home.
+     * If the app is killed through App Overview, it will restart every time, since the process is killed so conFixArm
+     * goes back to being true once the app gets restarted.
+     * todo: check this behaviour
+     */
     @Override
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
         if (conFixArm) {
             Log.e("Datacollector", "Restarting");
             Intent intent = new Intent(MainActivity.this, MainActivity.class);
-            PendingIntent pendingIntent = PendingIntent.getActivity(MainActivity.this, 0, intent, PendingIntent.FLAG_ONE_SHOT);
-            ((AlarmManager) getSystemService(ALARM_SERVICE)).set(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + 1000, pendingIntent);
+            PendingIntent pendingIntent = PendingIntent.getActivity(MainActivity.this, 0, intent, PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_IMMUTABLE);
+            ((AlarmManager) Objects.requireNonNull(getSystemService(ALARM_SERVICE))).set(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + 1000, pendingIntent);
             conFixArm=false;
         }
     }
@@ -165,6 +171,9 @@ public class MainActivity extends AppCompatActivity {
 
     /*
         NEXT TASK
+     */
+    /**
+     * Reads the default setting file from internal storage root and sets parameters.
      */
     private void setSettingsFromDefault(){
         File settingsFile = new File(Environment.getExternalStorageDirectory(), DEFAULT_SETTINGS_FILE_NAME);
@@ -211,10 +220,10 @@ public class MainActivity extends AppCompatActivity {
      * In conjunction with onKeyDown override (see below) ensures that System volume is always set to max
      */
     private void maximizeSystemVolume(){
-        AudioManager audioManager = (AudioManager) getApplicationContext().getSystemService(this.AUDIO_SERVICE);
+        AudioManager audioManager = (AudioManager) getApplicationContext().getSystemService(AUDIO_SERVICE);
+        assert audioManager != null;
         int maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
         audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, maxVolume, 0);
-
     }
 
     private void saveDefaultSettingsFile(){
@@ -224,9 +233,13 @@ public class MainActivity extends AppCompatActivity {
 
     private void saveDefaultSettingsFile(File settingsFile){
         try {
-            if(!settingsFile.exists()) {
-                settingsFile.createNewFile();
+            // this function already checks if file exists, no additional check needed
+            boolean newFile = settingsFile.createNewFile();
+            if (!newFile)
+            {
+                Log.e("file", "Default setting save to " + settingsFile + " failed");
             }
+
             BufferedWriter fileWriter = new BufferedWriter(new FileWriter(settingsFile, false));
             fileWriter.write(USER_ID + "," + BACKOFF_TIME + "," + MAX_STIM + "," + ONSET_CONFIDENCE + "," + E_STOP + "," + BUFFER_SIZE);
             Log.i("filedata","basicwrite");
@@ -244,7 +257,12 @@ public class MainActivity extends AppCompatActivity {
         File userIDFile = new File(Environment.getExternalStorageDirectory(), USER_ID_FILE_NAME);
         try {
             if(!userIDFile.exists()) {
-                userIDFile.createNewFile();
+                boolean newFile = userIDFile.createNewFile();
+                if (!newFile)
+                {
+                    Log.e("file", "Data save to " + userIDFile + " failed");
+                }
+
                 setUserID(DEFAULT_USER_ID);
                 USER_ID = DEFAULT_USER_ID;
             }
@@ -255,10 +273,13 @@ public class MainActivity extends AppCompatActivity {
         } catch (IOException e) {
             e.printStackTrace();
         }
-        Button userIDButton = (Button)findViewById(R.id.USERID);
-        userIDButton.setText(new String("SET USER ID: " + USER_ID));
+        Button userIDButton = findViewById(R.id.USERID);
+        userIDButton.setText("SET USER ID: " + USER_ID);
     }
 
+    /**
+     * Saves the User ID to the specified file.
+     */
     private void setUserID(String newID){
         setUserID(newID, new File(Environment.getExternalStorageDirectory(), USER_ID_FILE_NAME));
     }
@@ -274,6 +295,10 @@ public class MainActivity extends AppCompatActivity {
         getUserID();
     }
 
+    /**
+     * Popup for setting new User ID, followed by saving the ID to file and reloading settings
+     * for the new User ID.?
+     */
     private void alertSetNewID(){
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("Set New ID:");
@@ -305,6 +330,10 @@ public class MainActivity extends AppCompatActivity {
         builder.show();
     }
 
+    /**
+     * Load specified user settings from remote link, as well as the sound files to use.
+     * ?Appears to find files successfully after renaming resources to remove capitals?
+     */
     // todo: override all user settings
     private void getUserSettings(){
         new Thread(new Runnable() {
@@ -316,9 +345,8 @@ public class MainActivity extends AppCompatActivity {
                 List<String[]> settingsData = new ArrayList<>();
                 try {
                     URL url = new URL(settingsDataLink);
-                    url.openStream();
                     BufferedReader reader = new BufferedReader(new InputStreamReader(url.openStream()));
-                    String currentLine = null;
+                    String currentLine;
                     while((currentLine = reader.readLine()) != null){
                         settingsData.add(currentLine.replaceAll(" ", "").split(","));
                     }
@@ -364,33 +392,37 @@ public class MainActivity extends AppCompatActivity {
                 System.out.println("ONSET_CONFIDENCE: " + ONSET_CONFIDENCE);
                 System.out.println("E_STOP: " + E_STOP);
                 System.out.println("BUFFER_SIZE: " + BUFFER_SIZE);
-
             }
         }).start();
     }
 
-    void wakeupHandler() { //turn the screen on (if turned off) during recording period to improve acquistion reliability. Also checks the connection status and tries to reset thje connection if ti appears broken
-        final Handler wakeuptimer = new Handler();
+    /**
+     * Turn the screen on (if turned off) during recording period to improve acquisition reliability.
+     * Also checks the connection status and tries to reset the connection if it appears broken
+     */
+    void wakeupHandler() {
+        final Handler wakeupTimer = new Handler();
         Runnable runnableCode = new Runnable() {
             @Override
             public void run() {
                 PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
-                PowerManager.WakeLock powerOn = pm.newWakeLock(PowerManager.FULL_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP, "poweron");
-                powerOn.acquire();
+                assert pm != null;
+                PowerManager.WakeLock powerOn = pm.newWakeLock(PowerManager.FULL_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP, "fitbitTMR::poweron");
+                powerOn.acquire(10*60*1000L /*10 minutes*/);
                 powerOn.release();
                 Log.e("Datacollector", "Turn screen on");
-                //check connection status and reset if needed
-                if (System.currentTimeMillis() - lastpacket > 10000) { //last Fitbit data was received more than 10 seconds ago
+
+                // reset if last received more than 10 seconds ago
+                if (System.currentTimeMillis() - lastpacket > 10000) {
                     fixConnection();
                 }
 
-                wakeuptimer.postDelayed(this, 60000);
+                wakeupTimer.postDelayed(this, 60000);
 
             }
         };
-// Start the initial runnable task by posting through the handler
-        wakeuptimer.post(runnableCode);
-
+        // Start the initial runnable task by posting through the handler
+        wakeupTimer.post(runnableCode);
     }
 
     private void openDreem(){
@@ -403,9 +435,10 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-
+    /**
+     * Toggle Bluetooth on and off and start the Fitbit app to fix connection issues.
+     */
     private void fixConnection() {
-        //Toggle Bluetooth on and off and start the Fitbit app inb order to fix connection issues
         conFixArm=true; //enable app to self-restart
         BluetoothAdapter mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
         /*
@@ -417,9 +450,8 @@ public class MainActivity extends AppCompatActivity {
             mBluetoothAdapter.enable();
         }*/
 
-        // now start the Fitbit app, this should trigger a re-sync if it hasn't synced in a while and re open the TMR app in a cpuple of seconds
-
-        if (getDeviceName().indexOf("G930") > -1) { //only do this on our S7 devices, because on other devices the app self-restart doesn't work
+        // now start the Fitbit app, this should trigger a re-sync if it hasn't synced in a while and re open the TMR app in a couple of seconds
+        if (getDeviceName().contains("G930")) { //only do this on our S7 devices, because on other devices the app self-restart doesn't work
             Intent launchIntent = getPackageManager().getLaunchIntentForPackage("com.fitbit.FitbitMobile");
             if (launchIntent != null) {
                 startActivity(launchIntent);//null pointer check in case package name was not found
@@ -427,20 +459,19 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void resetStim() { //resets all stmulation parameters
+    /**
+     * Reset all stimulation parameters
+     */
+    private void resetStim() {
         getUserSettings();
         turnedOnTime=System.currentTimeMillis();
         whiteNoiseVolume = volumePreferences.getFloat("volume", 1.0f);
         cueNoise = whiteNoiseVolume+CUE_NOISE_OFFSET;
         backoff_time=System.currentTimeMillis()+BACKOFF_TIME;
         stim_seconds=0;
-
-
     }
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-
-
         super.onCreate(savedInstanceState);
         final Context cont = this;
         Log.i("fitbit","oncreate was called");
@@ -460,24 +491,26 @@ public class MainActivity extends AppCompatActivity {
         probBuffer.add(0.01f);
         //prevent the CPU from sleeping
         PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
+        assert powerManager != null;
         final PowerManager.WakeLock wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,
                 "DreamCatcher::DataCollection");
         //Remove title bar
-        this.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        this.supportRequestWindowFeature(Window.FEATURE_NO_TITLE);
         //Remove notification bar
         this.getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
 
         setContentView(R.layout.activity_main_simple); //use just the simple layout for now
-        final Button startButton = (Button) findViewById(R.id.startButton);
+        //todo: fix activity_main layout for testing
+        final Button startButton = findViewById(R.id.startButton);
 
 
         //start the power handler
         wakeupHandler();
         //start the web server
         startButton.setEnabled(false);
-        wakeLock.acquire();// get the wakelock
-        DataHandler DataHandlerTask = new DataHandler();
-        DataHandlerTask.execute();
+        wakeLock.acquire(10*60*1000L /*10 minutes*/);// get the wakelock
+//        DataHandler DataHandlerTask = new DataHandler();
+//        DataHandlerTask.execute();
 
         //start the Fitbit server
         server = new fitbitServer();
@@ -496,7 +529,7 @@ public class MainActivity extends AppCompatActivity {
         }
         Log.w("Httpd", "Web FILE server initialized.");
 
-        Button stopButton = (Button) findViewById(R.id.stopButton);
+        Button stopButton = findViewById(R.id.stopButton);
         stopButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -513,20 +546,19 @@ public class MainActivity extends AppCompatActivity {
         mdtest.readFiles();
         //mp.setLooping(true);
         //mp.setVolume(1.0f,1.0f);
-        final Button testButton = (Button) findViewById(R.id.testButton);
+        final Button testButton = findViewById(R.id.testButton);
         testButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 if (!isPlaying) {
                     mdtest.startMedia();
                     //mp.start();
-                    testButton.setText("Stop sound");
+                    testButton.setText(R.string.stop_sound);
                 }
                 else {
                     mdtest.pauseMedia();
                     //mp.pause();
-                    testButton.setText("Test sound");
-
+                    testButton.setText(R.string.test_sound);
                 }
                 isPlaying = !isPlaying;
             }
@@ -543,7 +575,7 @@ public class MainActivity extends AppCompatActivity {
         downloadButton.setEnabled(false);*/
         getUserID();
 
-        final Button userIDButton = (Button)findViewById(R.id.USERID);
+        final Button userIDButton = findViewById(R.id.USERID);
         userIDButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -554,17 +586,17 @@ public class MainActivity extends AppCompatActivity {
         volumePreferences = getSharedPreferences("volume_preferences", MODE_PRIVATE);
         whiteNoiseVolume = volumePreferences.getFloat("volume", 1.0f);
         cueNoise = whiteNoiseVolume+CUE_NOISE_OFFSET;
-        volumeBar = (SeekBar) findViewById(R.id.volumeBar);
+        volumeBar = findViewById(R.id.volumeBar);
         int displayVolume = (int) (whiteNoiseVolume * volumeBar.getMax());
 
         volumeBar.setProgress(displayVolume);
-        volumeText = (TextView) findViewById(R.id.volumeText);
+        volumeText = findViewById(R.id.volumeText);
         volumeText.setText(String.valueOf(displayVolume));
         volumeBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
                 volumeText.setText(String.valueOf(progress));
-                whiteNoiseVolume = new Float((progress / ((float) volumeBar.getMax()))*maxNoise);
+                whiteNoiseVolume = (float)((progress / ((float)volumeBar.getMax())) * maxNoise);
                 cueNoise = whiteNoiseVolume+CUE_NOISE_OFFSET;
                 mdtest.setMediaVolume(cueNoise, cueNoise);
                 whiteNoise.setVolume(whiteNoiseVolume, whiteNoiseVolume);
@@ -582,14 +614,14 @@ public class MainActivity extends AppCompatActivity {
             public void onStopTrackingTouch(SeekBar seekBar) {
                 SharedPreferences.Editor editor = volumePreferences.edit();
                 editor.putFloat("volume", whiteNoiseVolume);
-                editor.commit();
+                editor.apply();
             }
         });
 
         whiteNoise = MediaPlayer.create(this, R.raw.whitenoise);
         whiteNoise.setLooping(true);
         whiteNoise.setVolume(whiteNoiseVolume, whiteNoiseVolume);
-        tmrStateButton = (ToggleButton) findViewById(R.id.tmrState);
+        tmrStateButton = findViewById(R.id.tmrState);
         tmrStateButton.setTextColor(Color.parseColor("#FFFFFF"));
         //tmrStateButton.setBackgroundColor(Color.parseColor("#FF0000"));
         tmrStateButton.setBackgroundColor(Color.parseColor("#008000"));
@@ -603,16 +635,11 @@ public class MainActivity extends AppCompatActivity {
 
                     if (isPluggedIn()) {
                         if (System.currentTimeMillis() - lastpacket < 10000 || DEBUG_MODE || (hour >= 7 && hour <= 20)) {
-
                             resetStim();
                             whiteNoise.start();
                             tmrStateButton.setBackgroundColor(Color.parseColor("#FF0000"));
                             turnedOnTime = System.currentTimeMillis();
-
-
                         } else {
-
-                            //
                             AlertDialog alertDialog = new AlertDialog.Builder(MainActivity.this).create();
                             alertDialog.setTitle("Connection Error");
                             alertDialog.setMessage("Fitbit is not connected. Make sure it is charged and on your wrist and try again in a minute.");
@@ -643,8 +670,6 @@ public class MainActivity extends AppCompatActivity {
                                         }
                                     });
                         alertDialog.show();
-
-
                     }
                 } else {
                     whiteNoise.pause();
@@ -662,18 +687,17 @@ public class MainActivity extends AppCompatActivity {
         maximizeSystemVolume();
         getUserSettings();
 
-        final Button dreemOpenButton = (Button) findViewById(R.id.openDreem);
+        final Button dreemOpenButton = findViewById(R.id.openDreem);
         dreemOpenButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 openDreem();
             }
         });
-        if (getDeviceName().indexOf("G930") > -1) { //this button is used on the stroke system (Galaxy A10) but not on the home TMR system (S7)
+        if (getDeviceName().contains("G930")) { //this button is used on the stroke system (Galaxy A10) but not on the home TMR system (S7)
             dreemOpenButton.setVisibility(View.GONE);
         }
-
-        }
+    }
 
     @Override
     protected void onResume() {
@@ -682,6 +706,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
 
+    /**
+     * Overrides volume controls so that volume stays at maximum.
+     */
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if(keyCode==KeyEvent.KEYCODE_VOLUME_DOWN){
@@ -695,7 +722,9 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    //stop the server when app is closed
+    /**
+     * Stop the server when app is closed.
+     */
     @Override
     public void onDestroy()
     {
@@ -707,9 +736,9 @@ public class MainActivity extends AppCompatActivity {
             fileServer.stop();
     }
 
-
-
-    //fitbitServer handles getting data from the fitbit which sends it on port 8085
+    /**
+     * fitbitServer handles data from the fitbit, which is sent on port 8085
+     */
     private class fitbitServer extends NanoHTTPD {
         int telemetryCount=0;
         /*
@@ -718,7 +747,6 @@ public class MainActivity extends AppCompatActivity {
         private boolean downloadAcknowledged = false;
         private int downloadCount = 0;
         */
-        PrintWriter fitbitWriter;
         //MediaPlayer mp;
         MediaHandler md;
         public fitbitServer() {
@@ -741,10 +769,6 @@ public class MainActivity extends AppCompatActivity {
                         if (md.isMediaPlaying()){
                             md.pauseMedia();
                         }
-
-
-
-
                     }
                     //DEBUG CODE--MAKES THE SOUNDS START IMMEDIATELY
                     if (DEBUG_MODE) {
@@ -757,29 +781,35 @@ public class MainActivity extends AppCompatActivity {
                         StrictMode.setThreadPolicy(policy);
                         Log.i("debug"," loop ran");
                         //attempt to send an http request to ourselves to simulate fitbit data
+                        // openStream used to just send a GET request
                         String FAKE_DATA="( is3=1 ):0.99,";
                         try {
                             String urlString = "http://localhost:8085/rawdata?data=" +  URLEncoder.encode(FAKE_DATA, StandardCharsets.UTF_8.toString());
-                            HttpPost httpPost = new HttpPost(urlString);
-
                             URL url = new URL(urlString);
-                            url.openStream();
+                            InputStream is = url.openStream();
+                            is.close();
                         } catch (Exception e) {
                             Log.e("DEBUGREQUEST", "error");
                             e.printStackTrace();
                         }
 
-                        fitbitWakeup.postDelayed(this, 1000);
+                        // if you need to actually read the response:
+//                        String urlString = "http://localhost:8085/rawdata?data=";
+//                        try (BufferedReader br = new BufferedReader(new InputStreamReader(
+//                                new URL(urlString+URLEncoder.encode(FAKE_DATA, StandardCharsets.UTF_8.toString()))
+//                                .openStream()))) {
+//                            // if you actually need to read the response
+//                        } catch (Exception e) {
+//                            throw new RuntimeException(e);
+//                        }
 
+                        fitbitWakeup.postDelayed(this, 1000);
                     }
                     else {
                         fitbitWakeup.postDelayed(this, delay);
                     }
                 }
             }, delay);
-
-
-
         }
 
 
@@ -804,7 +834,6 @@ public class MainActivity extends AppCompatActivity {
                 Log.i("stagestatus","on");
             }
             else {
-                above_thresh=0;
                 above_thresh=0;
                 /*
                 if (mp.isPlaying()) {
@@ -890,7 +919,7 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
             //tmrStatus=tmrStatus+prob+","+String.valueOf(md.getMediaPosition())+","+String.valueOf(targetVolume)+","+md.getCurrentMedia();
-            tmrStatus=tmrStatus+prob+","+String.valueOf(md.getMediaPosition())+","+ String.valueOf(cueNoise);
+            tmrStatus=tmrStatus+prob+","+md.getMediaPosition()+","+ cueNoise;
 
 
             return tmrStatus;
@@ -901,17 +930,17 @@ public class MainActivity extends AppCompatActivity {
                               Map<String, String> parameters,
                               Map<String, String> files) {
             Log.e("fitbitserver", "request");
-            if (uri.indexOf("rawdata") > -1) { //recieved a data packet from the Fitbit, set the Fitbit status to good.
+            if (uri.contains("rawdata")) { // received a data packet from the Fitbit, set the Fitbit status to good.
                 lastpacket = System.currentTimeMillis();
                 runOnUiThread(new Runnable() {
 
                     @Override
                     public void run() {
-                        TextView fStatus = (TextView) findViewById(R.id.fConnectionStatus);
-                        fStatus.setText("✔️ Fitbit connected");
+                        TextView fStatus = findViewById(R.id.fConnectionStatus);
+                        fStatus.setText(R.string.fitbit_connected);
                     }
                 });
-                ToggleButton tmrStateButton = (ToggleButton) findViewById(R.id.tmrState);
+                ToggleButton tmrStateButton = findViewById(R.id.tmrState);
                 if (tmrStateButton.isChecked()) { //only do the rest if the TMR has actually been turned on
 
 
@@ -940,7 +969,7 @@ public class MainActivity extends AppCompatActivity {
                     String staging = "";
                     String is3current = "unset";
                     //check to see if stages are available
-                    if (parameters.toString().indexOf("is3") > -1) { //yes they are
+                    if (parameters.toString().contains("is3")) { //yes they are
                         String split = parameters.toString().split("( is3=1 )")[1];
                         split = split.split(",")[0].replace(")\":", "");
                         float prob;
@@ -1002,6 +1031,7 @@ public class MainActivity extends AppCompatActivity {
 
                         String isPhonePluggedInCurrently = String.valueOf(isPluggedIn());
                         PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                        assert pm != null;
                         String isScreenOnCurrently = String.valueOf(pm.isInteractive());
 
                         //REMOTE TELEMETRY FUNCTIONALITY
@@ -1014,9 +1044,9 @@ public class MainActivity extends AppCompatActivity {
                         //Phone plugged in - isPhonePluggedInCurrently
                         //Phone screen on - isScreenOnCurrently
 
-                        //send a telemetry thing only once evwery minute to avoid using ridiculuous amounts of data
+                        //send a telemetry thing only once every minute to avoid using ridiculous amounts of data
                         telemetryCount++;
-                        if (telemetryCount >= 60 || getDeviceName().indexOf("G930") == -1) { //transmit data every second if not on the G7 because the other phones have bigger data plans
+                        if (telemetryCount >= 60 || !getDeviceName().contains("G930")) { //transmit data every second if not on the G7 because the other phones have bigger data plans
                             telemetryCount = 0;
                             JSONObject remoteTeleData = new JSONObject();
                             try {
@@ -1037,15 +1067,14 @@ public class MainActivity extends AppCompatActivity {
                                 System.out.println("tele" + urlString);
                                 Log.i("telemetry", "send");
                                 URL url = new URL(urlString);
-                                url.openStream();
+                                InputStream is = url.openStream();
+                                is.close();
                             } catch (Exception e) {
                                 Log.e("telemetry", "error");
                                 e.printStackTrace();
                             }
                         }
                     }
-
-
                 }
                 // Log.i("server", parameters.toString());
             /*
@@ -1071,8 +1100,8 @@ public class MainActivity extends AppCompatActivity {
     private class savedDataServer extends NanoHTTPD{
         boolean beginTransfer = false;
         boolean start = true;
-        List<String> inputs = new ArrayList<String>();
-        List<String> outputs = new ArrayList<String>();
+        List<String> inputs = new ArrayList<>();
+        List<String> outputs = new ArrayList<>();
         int currentLine = 0;
         List<String> lines = new ArrayList<>();
 
@@ -1112,7 +1141,7 @@ public class MainActivity extends AppCompatActivity {
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        ((Button) findViewById(R.id.downloadButton)).setEnabled(true);
+                        (findViewById(R.id.downloadButton)).setEnabled(true);
                     }
                 });
                 return buildResponse("PASS");
@@ -1139,23 +1168,22 @@ public class MainActivity extends AppCompatActivity {
                     }
                     LineInput lineInput = new LineInput(getLastInput());
                     if(currentLine == lineInput.getLineNumber()){
-                        if(lineInput.getCommandType().equals("DATA")){
-                            ((Button) findViewById(R.id.downloadButton)).setTextColor(Color.parseColor("#FFFF00")); //yellow
-                            lines.add(lineInput.getData());
-                            currentLine++;
-                            return buildResponse("LINE_" + currentLine);
-                        }
-                        else if(lineInput.getCommandType().equals("INIT")){
-                            return buildResponse("INITIATE");
-                        }
-                        else if(lineInput.getCommandType().equals("EXIT")){
-                            if(saveToFile()){
-                                ((Button) findViewById(R.id.downloadButton)).setTextColor(Color.parseColor("#9ACD32")); //yellowgreen
-                                return buildResponse("CLEAR");
-                            }
-                            else{
+                        switch (lineInput.getCommandType()) {
+                            case "DATA":
+                                ((Button) findViewById(R.id.downloadButton)).setTextColor(Color.parseColor("#FFFF00")); //yellow
+
+                                lines.add(lineInput.getData());
+                                currentLine++;
                                 return buildResponse("LINE_" + currentLine);
-                            }
+                            case "INIT":
+                                return buildResponse("INITIATE");
+                            case "EXIT":
+                                if (saveToFile()) {
+                                    ((Button) findViewById(R.id.downloadButton)).setTextColor(Color.parseColor("#9ACD32")); //yellowgreen
+                                    return buildResponse("CLEAR");
+                                } else {
+                                    return buildResponse("LINE_" + currentLine);
+                                }
                         }
                     } else{
                         return buildResponse("LINE_" + currentLine);
@@ -1165,10 +1193,10 @@ public class MainActivity extends AppCompatActivity {
                 else if(getLastOutput().startsWith("CLEAR")) {
                     if(getLastInput().startsWith("SUCCESS")){
                         ((Button) findViewById(R.id.downloadButton)).setTextColor(Color.parseColor("#008000")); //green
-                        lines = new ArrayList<String>();
-                        outputs = new ArrayList<String>();
-                        inputs = new ArrayList<String>();
-                        currentLine = new Integer(0);
+                        lines = new ArrayList<>();
+                        outputs = new ArrayList<>();
+                        inputs = new ArrayList<>();
+                        currentLine = 0;
                         beginTransfer = false;
                         start = true;
                         return buildResponse("PASS");
@@ -1186,9 +1214,14 @@ public class MainActivity extends AppCompatActivity {
             String storageFileName = "SAVED_DATA_" + System.currentTimeMillis() + ".txt";
             File storageFile = new File(storageDirectory, storageFileName);
             try {
-                if(!storageFile.exists()) {
-                    storageFile.createNewFile();
+                boolean newFile = storageFile.createNewFile();
+                if (!newFile)
+                {
+                    Log.e("file", "Data save to " + storageFileName +
+                            " in directory" + storageDirectory.toString() + " failed");
+                    return false;
                 }
+
                 BufferedWriter writer = new BufferedWriter(new FileWriter(storageFile, true));
                 for(String line: lines){
                     writer.write(line + "\n");
@@ -1236,8 +1269,8 @@ public class MainActivity extends AppCompatActivity {
         }
 
         private class LineInput{
-            private int LineNumber;
-            private String CommandType;
+            private final int LineNumber;
+            private final String CommandType;
             private String Data;
             public LineInput(String line){
                 System.out.println("LINEINPUT");
@@ -1274,152 +1307,153 @@ public class MainActivity extends AppCompatActivity {
     //DataHandler receives zMax data and writes it to a file
     //Note--data is stored in UNSCALED form
     //THis function is based on the matlab code at http://hypnodynecorp.com/downloads/HDConnect.m
-    private class DataHandler extends AsyncTask<Void, String, Void> {
-        private Socket client;
-        private PrintWriter printwriter;
-        private String messsage;
-        private Context mContext;
-        String dataBuffer = "";
-        int BUFFER_SIZE=1500;
-        double MIN_QUAL=100;
-        double[] eegLeftBuffer=new double[BUFFER_SIZE]; //buffered EEG data for evaluating signal quality
-        double[] eegRightBuffer=new double[BUFFER_SIZE];
-        double[] stds=new double[BUFFER_SIZE];
 
-        //take standard deviation of EEG channels
-        //if a channel is disocnnected it will be flat, with little stdev
-        //todo: low pass filter before, to remove variation indcued by amplifier artifacts when a channel is disconnected
-        public double computeQuality(int EEG_L,int EEG_R) {
-            eegLeftBuffer[BUFFER_SIZE-1]=EEG_L; //update buffers w new data
-            eegRightBuffer[BUFFER_SIZE-1]=EEG_R;
-            //shift buffers
-            for (int i=0; i < BUFFER_SIZE-1; i++) {
-                eegLeftBuffer[i]=eegLeftBuffer[i+1];
-                eegRightBuffer[i]=eegRightBuffer[i+1];
-            }
-            // double corr= new PearsonsCorrelation().correlation(eegLeftBuffer, eegRightBuffer);
-            double stdleft=new StandardDeviation().evaluate(eegLeftBuffer);
-            double stdright=new StandardDeviation().evaluate(eegRightBuffer);
-            if (stdright < stdleft) {
-                stds[BUFFER_SIZE - 1] = stdright;
-            }
-            else {
-                stds[BUFFER_SIZE - 1] = stdleft;
-            }
-            //shift moving average and take mean across the time window
-            double total=0;
-            double samples=0;
-            for (int i=0; i < BUFFER_SIZE-1; i++) {
-                stds[i]=stds[i+1];
-                total=total+stds[i];
-                samples++;
-            }
-
-            return total/samples;
-        }
-
-        @Override
-        protected Void doInBackground(Void... params) {
-            /*
-            Log.i("Record", "Recording started");
-            try {
-
-                client = new Socket("127.0.0.1", 24000); // connect to the server
-                printwriter = new PrintWriter(client.getOutputStream(), true);
-                printwriter.write("HELLO\n"); // write the message to output stream
-
-                printwriter.flush();
-
-                InputStream is = client.getInputStream();
-                while (true) {
-                    int c = is.read();
-                    if (c != -1) {
-                        byte db = (byte) c;
-                        //Log.e("data","data");
-                        if (db == '\n') {
-                            if (dataBuffer.length() > 1) { //we have just completed a sample, now process it
-                                String[] splitup = dataBuffer.split("\\.");
-                                if (splitup.length > 1) { //the stuff after the period is the actual data
-                                    String[] theData = splitup[1].split("-"); //split into individual hex digits
-                                    int packetType = (int) Long.parseLong(theData[0], 16);
-                                    if (packetType >= 1 && packetType <= 11) { //first digit specifies the type of packet this is; we only process it if it's a dat apacket
-                                        int EEG_R=getWordAt(theData,1);
-                                        int EEG_L=getWordAt(theData,3);
-                                        int ACC_X=getWordAt(theData,5);
-                                        int ACC_Y=getWordAt(theData,7);
-                                        int ACC_Z=getWordAt(theData,9);
-                                        int PPG = getWordAt(theData,27);
-                                        int BODYTEMP=getWordAt(theData,36);
-                                        int AMBIENTLIGHT=getWordAt(theData,21);
-                                        int BATTERYPOWER=getWordAt(theData,23);
-                                        int AMBIENTNOISE=getWordAt(theData,19);
-                                        double EEG_QUALITY=computeQuality(EEG_L,EEG_R); //EEG signal quality from standard deviation
-                                        String zmaxStatus=System.currentTimeMillis()+","+EEG_R+","+EEG_L+","+ACC_X+","+ACC_Y+","+ACC_Z+","+PPG+","+BODYTEMP+","+AMBIENTLIGHT+","+BATTERYPOWER+","+AMBIENTNOISE+","+EEG_QUALITY+"\n";
-                                        zMaxBuffer=zMaxBuffer+zmaxStatus;
-                                        zMaxCount++;
-                                        if (zMaxCount > ZMAX_WRITE_INTERVAL) {
-                                            try {
-                                                FileWriter zWriter = new FileWriter(getApplicationContext().getExternalFilesDir(null) + "/zmaxdata.txt", true);
-                                                PrintWriter printWriter = new PrintWriter(zWriter);
-                                                printWriter.print(zMaxBuffer);
-                                                printWriter.flush();
-                                                printWriter.close();
-                                                zMaxCount=0;
-                                                zMaxBuffer="";
-                                            } catch (IOException e) {
-                                                Log.e("Zmaxserver", "Error writing to file");
-                                            }
-                                        }
-
-
-                                        //valid packet received, so update the connection status
-                                        TextView zCon = (TextView) findViewById(R.id.zConnectionStatus);
-                                        publishProgress("zmaxconnected");
-
-                                        if ( EEG_QUALITY < MIN_QUAL) { //EEG is bad if the correlation is Nan (no variation in at least one channel, implies that the channel is pegged at max or min), or if the channels are too correlated
-                                            publishProgress("zmaxbadsignal");
-                                        }
-                                        else {
-                                            publishProgress("zmaxgoodsignal");
-                                        }
-                                    } else {
-                                        Log.i("Error", "Wrong packet type");
-                                    }
-                                }
-                            }
-                            dataBuffer = "";
-                        }
-                        dataBuffer = dataBuffer + (char) db;
-
-
-                    }
-
-
-                }
-            } catch (UnknownHostException e) {
-                e.printStackTrace();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-            return null;
-            */
-            return null;
-        }
-
-        @Override
-        protected void onProgressUpdate(String... values) { //handles updating the UI
-            if (values[0].equals("zmaxconnected")) {
-                TextView zStatus = (TextView) findViewById(R.id.zConnectionStatus);
-                //zStatus.setText("✔️ zMax connected");
-            }
-            if (values[0].equals("zmaxbadsignal")) {
-                TextView zStatus = (TextView) findViewById(R.id.zSignalStatus);
-                //zStatus.setText("⚠️️ Poor forehead signal");
-            }
-            if (values[0].equals("zmaxgoodsignal")) {
-                TextView zStatus = (TextView) findViewById(R.id.zSignalStatus);
-                //zStatus.setText("✔️️️ Good forehead signal");
-            }
-        }
-    }
+//    private class DataHandler extends AsyncTask<Void, String, Void> {
+//        private Socket client;
+//        private PrintWriter printwriter;
+//        private String messsage;
+//        private Context mContext;
+//        String dataBuffer = "";
+//        int BUFFER_SIZE=1500;
+//        double MIN_QUAL=100;
+//        double[] eegLeftBuffer=new double[BUFFER_SIZE]; //buffered EEG data for evaluating signal quality
+//        double[] eegRightBuffer=new double[BUFFER_SIZE];
+//        double[] stds=new double[BUFFER_SIZE];
+//
+//        //take standard deviation of EEG channels
+//        //if a channel is disocnnected it will be flat, with little stdev
+//        //todo: low pass filter before, to remove variation indcued by amplifier artifacts when a channel is disconnected
+//        public double computeQuality(int EEG_L,int EEG_R) {
+//            eegLeftBuffer[BUFFER_SIZE-1]=EEG_L; //update buffers w new data
+//            eegRightBuffer[BUFFER_SIZE-1]=EEG_R;
+//            //shift buffers
+//            for (int i=0; i < BUFFER_SIZE-1; i++) {
+//                eegLeftBuffer[i]=eegLeftBuffer[i+1];
+//                eegRightBuffer[i]=eegRightBuffer[i+1];
+//            }
+//            // double corr= new PearsonsCorrelation().correlation(eegLeftBuffer, eegRightBuffer);
+//            double stdleft=new StandardDeviation().evaluate(eegLeftBuffer);
+//            double stdright=new StandardDeviation().evaluate(eegRightBuffer);
+//            if (stdright < stdleft) {
+//                stds[BUFFER_SIZE - 1] = stdright;
+//            }
+//            else {
+//                stds[BUFFER_SIZE - 1] = stdleft;
+//            }
+//            //shift moving average and take mean across the time window
+//            double total=0;
+//            double samples=0;
+//            for (int i=0; i < BUFFER_SIZE-1; i++) {
+//                stds[i]=stds[i+1];
+//                total=total+stds[i];
+//                samples++;
+//            }
+//
+//            return total/samples;
+//        }
+//
+//        @Override
+//        protected Void doInBackground(Void... params) {
+//            /*
+//            Log.i("Record", "Recording started");
+//            try {
+//
+//                client = new Socket("127.0.0.1", 24000); // connect to the server
+//                printwriter = new PrintWriter(client.getOutputStream(), true);
+//                printwriter.write("HELLO\n"); // write the message to output stream
+//
+//                printwriter.flush();
+//
+//                InputStream is = client.getInputStream();
+//                while (true) {
+//                    int c = is.read();
+//                    if (c != -1) {
+//                        byte db = (byte) c;
+//                        //Log.e("data","data");
+//                        if (db == '\n') {
+//                            if (dataBuffer.length() > 1) { //we have just completed a sample, now process it
+//                                String[] splitup = dataBuffer.split("\\.");
+//                                if (splitup.length > 1) { //the stuff after the period is the actual data
+//                                    String[] theData = splitup[1].split("-"); //split into individual hex digits
+//                                    int packetType = (int) Long.parseLong(theData[0], 16);
+//                                    if (packetType >= 1 && packetType <= 11) { //first digit specifies the type of packet this is; we only process it if it's a dat apacket
+//                                        int EEG_R=getWordAt(theData,1);
+//                                        int EEG_L=getWordAt(theData,3);
+//                                        int ACC_X=getWordAt(theData,5);
+//                                        int ACC_Y=getWordAt(theData,7);
+//                                        int ACC_Z=getWordAt(theData,9);
+//                                        int PPG = getWordAt(theData,27);
+//                                        int BODYTEMP=getWordAt(theData,36);
+//                                        int AMBIENTLIGHT=getWordAt(theData,21);
+//                                        int BATTERYPOWER=getWordAt(theData,23);
+//                                        int AMBIENTNOISE=getWordAt(theData,19);
+//                                        double EEG_QUALITY=computeQuality(EEG_L,EEG_R); //EEG signal quality from standard deviation
+//                                        String zmaxStatus=System.currentTimeMillis()+","+EEG_R+","+EEG_L+","+ACC_X+","+ACC_Y+","+ACC_Z+","+PPG+","+BODYTEMP+","+AMBIENTLIGHT+","+BATTERYPOWER+","+AMBIENTNOISE+","+EEG_QUALITY+"\n";
+//                                        zMaxBuffer=zMaxBuffer+zmaxStatus;
+//                                        zMaxCount++;
+//                                        if (zMaxCount > ZMAX_WRITE_INTERVAL) {
+//                                            try {
+//                                                FileWriter zWriter = new FileWriter(getApplicationContext().getExternalFilesDir(null) + "/zmaxdata.txt", true);
+//                                                PrintWriter printWriter = new PrintWriter(zWriter);
+//                                                printWriter.print(zMaxBuffer);
+//                                                printWriter.flush();
+//                                                printWriter.close();
+//                                                zMaxCount=0;
+//                                                zMaxBuffer="";
+//                                            } catch (IOException e) {
+//                                                Log.e("Zmaxserver", "Error writing to file");
+//                                            }
+//                                        }
+//
+//
+//                                        //valid packet received, so update the connection status
+//                                        TextView zCon = (TextView) findViewById(R.id.zConnectionStatus);
+//                                        publishProgress("zmaxconnected");
+//
+//                                        if ( EEG_QUALITY < MIN_QUAL) { //EEG is bad if the correlation is Nan (no variation in at least one channel, implies that the channel is pegged at max or min), or if the channels are too correlated
+//                                            publishProgress("zmaxbadsignal");
+//                                        }
+//                                        else {
+//                                            publishProgress("zmaxgoodsignal");
+//                                        }
+//                                    } else {
+//                                        Log.i("Error", "Wrong packet type");
+//                                    }
+//                                }
+//                            }
+//                            dataBuffer = "";
+//                        }
+//                        dataBuffer = dataBuffer + (char) db;
+//
+//
+//                    }
+//
+//
+//                }
+//            } catch (UnknownHostException e) {
+//                e.printStackTrace();
+//            } catch (IOException e) {
+//                e.printStackTrace();
+//            }
+//            return null;
+//            */
+//            return null;
+//        }
+//
+//        @Override
+//        protected void onProgressUpdate(String... values) { //handles updating the UI
+//            if (values[0].equals("zmaxconnected")) {
+//                TextView zStatus = (TextView) findViewById(R.id.zConnectionStatus);
+//                //zStatus.setText("✔️ zMax connected");
+//            }
+//            if (values[0].equals("zmaxbadsignal")) {
+//                TextView zStatus = (TextView) findViewById(R.id.zSignalStatus);
+//                //zStatus.setText("⚠️️ Poor forehead signal");
+//            }
+//            if (values[0].equals("zmaxgoodsignal")) {
+//                TextView zStatus = (TextView) findViewById(R.id.zSignalStatus);
+//                //zStatus.setText("✔️️️ Good forehead signal");
+//            }
+//        }
+//    }
 }
