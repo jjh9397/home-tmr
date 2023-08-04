@@ -88,6 +88,7 @@ public class MainActivity extends AppCompatActivity {
     long OFFSET_DELAY=8*60*60*1000;
     String FILE_DATA = ""; //data stored in the "files:" descriptor on github
     boolean DEBUG_MODE=true; //if true, app simulates stage 3 sleep
+    boolean TEST_MODE=false; //if true, displays fitbit buffer for testing purposes
     long turnedOnTime=0;
     int above_thresh=0;
     double backoff_time=0;
@@ -101,6 +102,7 @@ public class MainActivity extends AppCompatActivity {
     savedDataServer fileServer;
     String fitbitStatus="";
     ToggleButton tmrStateButton;
+    ToggleButton testDataButton;
     MediaPlayer whiteNoise;
     double maxNoise = 0.025;
     Float whiteNoiseVolume = (float) maxNoise;
@@ -116,7 +118,7 @@ public class MainActivity extends AppCompatActivity {
     String fitbitBuffer="";
     int fitbitCount=0;
     ArrayList<Float> probBuffer=new ArrayList<>();
-
+    private File storageDirectory;
 
     boolean conFixArm=false; //whether the app can self-restart
     int getWordAt(String[] data,int position) { //get the word (two bytes) from the zMax hex data stream and combine them to make an int
@@ -176,7 +178,7 @@ public class MainActivity extends AppCompatActivity {
      * Reads the default setting file from internal storage root and sets parameters.
      */
     private void setSettingsFromDefault(){
-        File settingsFile = new File(Environment.getExternalStorageDirectory(), DEFAULT_SETTINGS_FILE_NAME);
+        File settingsFile = new File(storageDirectory, DEFAULT_SETTINGS_FILE_NAME);
         try {
             if(!settingsFile.exists()) {
                 System.out.println("NO LOCAL BACKUP. RESORTING TO DEFAULT...");
@@ -184,6 +186,7 @@ public class MainActivity extends AppCompatActivity {
             } else{
                 BufferedReader fileReader = new BufferedReader(new FileReader(settingsFile));
                 String[] settingsData = fileReader.readLine().split(",");
+                fileReader.close();
                 Log.i("userid",""+USER_ID);
                 if(settingsData[0].equals(USER_ID) || USER_ID==null){
                     System.out.println("USING SETTINGS FROM LAST RUN ON LOCAL BACKUP...");
@@ -227,7 +230,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void saveDefaultSettingsFile(){
-        File settingsFile = new File(Environment.getExternalStorageDirectory(), DEFAULT_SETTINGS_FILE_NAME);
+        File settingsFile = new File(storageDirectory, DEFAULT_SETTINGS_FILE_NAME);
         saveDefaultSettingsFile(settingsFile);
     }
 
@@ -237,7 +240,7 @@ public class MainActivity extends AppCompatActivity {
             boolean newFile = settingsFile.createNewFile();
             if (!newFile)
             {
-                Log.e("file", "Default setting save to " + settingsFile + " failed");
+                Log.i("file",  "" + settingsFile + " already exists");
             }
 
             BufferedWriter fileWriter = new BufferedWriter(new FileWriter(settingsFile, false));
@@ -254,13 +257,13 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void getUserID(){
-        File userIDFile = new File(Environment.getExternalStorageDirectory(), USER_ID_FILE_NAME);
+        File userIDFile = new File(storageDirectory, USER_ID_FILE_NAME);
         try {
             if(!userIDFile.exists()) {
                 boolean newFile = userIDFile.createNewFile();
                 if (!newFile)
                 {
-                    Log.e("file", "Data save to " + userIDFile + " failed");
+                    Log.e("file", "" + userIDFile + " already exists");
                 }
 
                 setUserID(DEFAULT_USER_ID);
@@ -269,6 +272,7 @@ public class MainActivity extends AppCompatActivity {
             else{
                 BufferedReader fileReader = new BufferedReader(new FileReader(userIDFile));
                 USER_ID = fileReader.readLine();
+                fileReader.close();
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -281,7 +285,7 @@ public class MainActivity extends AppCompatActivity {
      * Saves the User ID to the specified file.
      */
     private void setUserID(String newID){
-        setUserID(newID, new File(Environment.getExternalStorageDirectory(), USER_ID_FILE_NAME));
+        setUserID(newID, new File(storageDirectory, USER_ID_FILE_NAME));
     }
 
     private void setUserID(String newID, File userIDFile) {
@@ -408,7 +412,7 @@ public class MainActivity extends AppCompatActivity {
                 PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
                 assert pm != null;
                 PowerManager.WakeLock powerOn = pm.newWakeLock(PowerManager.FULL_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP, "fitbitTMR::poweron");
-                powerOn.acquire(10*60*1000L /*10 minutes*/);
+                powerOn.acquire();
                 powerOn.release();
                 Log.e("Datacollector", "Turn screen on");
 
@@ -473,13 +477,26 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // from https://stackoverflow.com/a/63386527 to find resource leaks
+        try {
+            Class.forName("dalvik.system.CloseGuard")
+                    .getMethod("setEnabled", boolean.class)
+                    .invoke(null, true);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e);
+        }
+
         final Context cont = this;
+        storageDirectory = cont.getExternalFilesDir(null);
+        //  storageDirectory = Environment.getExternalStorageDirectory(); // old, stores in root
         Log.i("fitbit","oncreate was called");
         getUserSettings();
          AppUpdater ud=new AppUpdater(this);
                 ud.setUpdateFrom(UpdateFrom.JSON)
                 .setUpdateJSON("https://raw.githubusercontent.com/nathanww/home-tmr/stroke2/app/release/update.json")
                 .start();
+                // todo: figure out how this updater works
 
         //we need runtime permission to create files in the shared storage, so request it
         int check = ActivityCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE);
@@ -508,7 +525,7 @@ public class MainActivity extends AppCompatActivity {
         wakeupHandler();
         //start the web server
         startButton.setEnabled(false);
-        wakeLock.acquire(10*60*1000L /*10 minutes*/);// get the wakelock
+        wakeLock.acquire();// get the wakelock
 //        DataHandler DataHandlerTask = new DataHandler();
 //        DataHandlerTask.execute();
 
@@ -625,6 +642,14 @@ public class MainActivity extends AppCompatActivity {
         tmrStateButton.setTextColor(Color.parseColor("#FFFFFF"));
         //tmrStateButton.setBackgroundColor(Color.parseColor("#FF0000"));
         tmrStateButton.setBackgroundColor(Color.parseColor("#008000"));
+
+        testDataButton = findViewById(R.id.testData);
+        testDataButton.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton compoundButton, boolean isChecked) {
+                TEST_MODE = isChecked;
+            }
+        });
 
         tmrStateButton.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
@@ -749,6 +774,7 @@ public class MainActivity extends AppCompatActivity {
         */
         //MediaPlayer mp;
         MediaHandler md;
+        Calendar cal;
         public fitbitServer() {
             super(8085);
             Log.i("fitbit","server start");
@@ -758,6 +784,8 @@ public class MainActivity extends AppCompatActivity {
             //mp.setVolume(1.0f,1.0f);
             md = new MediaHandler(getApplicationContext());
             md.readFiles();
+
+            cal = Calendar.getInstance();
 
             final Handler fitbitWakeup = new Handler();
 
@@ -820,6 +848,14 @@ public class MainActivity extends AppCompatActivity {
             }
             return sum / data.size();
         }
+
+
+        /**
+         * Given a stage 3 probability, handles TMR cue initiation and volume control.
+         * @param prob the probability that patient is in stage 3 sleep.
+         * @return tmrStatus string indicating if sound is being played, the passed in probability,
+         *         the media position, and the cue volume.
+         */
         String handleStaging(float prob) {
             Log.i("stage",prob+"");
             String tmrStatus="0,";
@@ -938,6 +974,11 @@ public class MainActivity extends AppCompatActivity {
                     public void run() {
                         TextView fStatus = findViewById(R.id.fConnectionStatus);
                         fStatus.setText(R.string.fitbit_connected);
+                        if (TEST_MODE) {
+                            fStatus.append("\n");
+                            fStatus.append(fitbitBuffer);
+                        }
+                        fStatus.setTextColor(Color.WHITE);
                     }
                 });
                 ToggleButton tmrStateButton = findViewById(R.id.tmrState);
@@ -993,6 +1034,35 @@ public class MainActivity extends AppCompatActivity {
                     Log.e("stage3","1");
                 }
                 */
+                    if (DEBUG_MODE) {
+                        // test that file writing works
+                        String[] fitbitParams = parameters.toString().replace(":", ",").split(","); //split up individual data vals
+
+                        fitbitBuffer = fitbitBuffer + fitbitStatus + "," + staging + "\n";
+                        fitbitCount++;
+                        cal = Calendar.getInstance();
+                        String filename = "/" + cal.get(Calendar.MONTH)+"-"+cal.get(Calendar.DATE)+"-"+cal.get(Calendar.YEAR)+"_fitbitdata.txt";
+                        if (fitbitCount > FITBIT_WRITE_INTERVAL) {
+                            try {
+                                FileWriter fileWriter = new FileWriter(storageDirectory + filename, true);
+                                PrintWriter printWriter = new PrintWriter(fileWriter);
+                                printWriter.print(fitbitBuffer);  //New line
+                                printWriter.flush();
+                                printWriter.close();
+                                Log.i("TEST_OUTPUT", fitbitBuffer);
+
+//                                TextView fStatus = findViewById(R.id.fConnectionStatus);
+//                                fStatus.append(fitbitBuffer);
+//                                fStatus.setTextColor(Color.WHITE);
+
+                                fitbitCount = 0;
+                                fitbitBuffer = "";
+                            } catch (IOException e) {
+                                Log.e("Fitbitserver", "Error writing to file");
+                            }
+                        }
+                    }
+
                     if (!DEBUG_MODE) { //extra telemetry data is not provided in debug mode, so don't do this
                         String[] fitbitParams = parameters.toString().replace(":", ",").split(","); //split up individual data vals
 
@@ -1005,7 +1075,9 @@ public class MainActivity extends AppCompatActivity {
                         fitbitCount++;
                         if (fitbitCount > FITBIT_WRITE_INTERVAL) {
                             try {
-                                FileWriter fileWriter = new FileWriter(getApplicationContext().getExternalFilesDir(null) + "/fitbitdata.txt", true);
+                                cal = Calendar.getInstance();
+                                String filename = "/" + cal.get(Calendar.MONTH)+"-"+cal.get(Calendar.DATE)+"-"+cal.get(Calendar.YEAR)+"_fitbitdata.txt";
+                                FileWriter fileWriter = new FileWriter(storageDirectory + filename, true);
                                 PrintWriter printWriter = new PrintWriter(fileWriter);
                                 printWriter.print(fitbitBuffer);  //New line
                                 printWriter.flush();
@@ -1210,15 +1282,16 @@ public class MainActivity extends AppCompatActivity {
         }
 
         private boolean saveToFile(){
-            File storageDirectory = Environment.getExternalStorageDirectory();
+//            File storageDirectory = Environment.getExternalStorageDirectory();
+//            File storageDirectory = MainActivity.this.getExternalFilesDir(null);
             String storageFileName = "SAVED_DATA_" + System.currentTimeMillis() + ".txt";
             File storageFile = new File(storageDirectory, storageFileName);
             try {
                 boolean newFile = storageFile.createNewFile();
                 if (!newFile)
                 {
-                    Log.e("file", "Data save to " + storageFileName +
-                            " in directory" + storageDirectory.toString() + " failed");
+                    Log.e("file", "" + storageFileName +
+                            " in directory" + storageDirectory.toString() + " already exists");
                     return false;
                 }
 
@@ -1393,7 +1466,7 @@ public class MainActivity extends AppCompatActivity {
 //                                        zMaxCount++;
 //                                        if (zMaxCount > ZMAX_WRITE_INTERVAL) {
 //                                            try {
-//                                                FileWriter zWriter = new FileWriter(getApplicationContext().getExternalFilesDir(null) + "/zmaxdata.txt", true);
+//                                                FileWriter zWriter = new FileWriter(storageDirectory + "/zmaxdata.txt", true);
 //                                                PrintWriter printWriter = new PrintWriter(zWriter);
 //                                                printWriter.print(zMaxBuffer);
 //                                                printWriter.flush();

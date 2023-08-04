@@ -65,7 +65,8 @@ public class MediaHandler {
      */
     public void readFiles() {
 
-            storageDirectory = Environment.getExternalStorageDirectory();
+//            storageDirectory = Environment.getExternalStorageDirectory();
+            storageDirectory = context.getExternalFilesDir(null);
             System.out.println("dir:" + storageDirectory.toString());
             setLogFile();
             mediaData = getSortedMediaData();
@@ -332,7 +333,7 @@ public class MediaHandler {
             String[] brokenUp = line.split(":");
             final Float score = Float.valueOf(brokenUp[0]);
             String resID="myoci1";
-            if (brokenUp[1].indexOf(".wav") > -1) {
+            if (brokenUp[1].contains(".wav")) {
                 resID = brokenUp[1].split("\\.")[0];
             }
             else if (brokenUp.length >= 4) {
@@ -366,6 +367,7 @@ public class MediaHandler {
                         String line;
                         while ((line = reader.readLine()) != null)
                             mediaLines.add(line);
+                        reader.close();
                         return mediaLines;
                 }
             }
