@@ -14,6 +14,7 @@ import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -161,6 +162,8 @@ public class MediaHandler {
      * Sets up logFile File object. Creates the logFile if it doesn't already exist
      */
     private void setLogFile(){
+        Calendar cal = Calendar.getInstance();
+        this.logFileName = cal.get(Calendar.YEAR) +"-"+ cal.get(Calendar.MONTH) +"-"+ cal.get(Calendar.DATE) +"_MediaLog.txt";
         logFile = new File(storageDirectory, logFileName);
         if(!logFile.exists()) {
             try {
@@ -197,6 +200,7 @@ public class MediaHandler {
         String timeStamp = String.valueOf(System.currentTimeMillis());
         String line = timeStamp + "," + signal + "," + String.valueOf(mediaLength) + "," +
                 String.valueOf(leftVolume) + "," + String.valueOf(rightVolume);
+        Log.i("medialog",line);
         try {
             logFileWriter.write(line);
             logFileWriter.newLine();
@@ -328,6 +332,7 @@ public class MediaHandler {
     List<Pair<Float, Integer>> getMediaData(){
         final List<String> mediaFileLines = readMediaFile();
         System.out.println(mediaFileLines);
+        Log.i("mediaFileLines", mediaFileLines.toString());
         final List<Pair<Float, Integer>> mediaData = new ArrayList<>();
         for(String line: mediaFileLines){
             String[] brokenUp = line.split(":");

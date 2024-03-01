@@ -469,7 +469,7 @@ public class MainActivity extends AppCompatActivity {
     private void resetStim() {
         getUserSettings();
         turnedOnTime=System.currentTimeMillis();
-        whiteNoiseVolume = volumePreferences.getFloat("volume", 1.0f);
+        whiteNoiseVolume = volumePreferences.getFloat("volume", (float)maxNoise);
         cueNoise = whiteNoiseVolume+CUE_NOISE_OFFSET;
         backoff_time=System.currentTimeMillis()+BACKOFF_TIME;
         stim_seconds=0;
@@ -601,7 +601,7 @@ public class MainActivity extends AppCompatActivity {
         });
 
         volumePreferences = getSharedPreferences("volume_preferences", MODE_PRIVATE);
-        whiteNoiseVolume = volumePreferences.getFloat("volume", 1.0f);
+        whiteNoiseVolume = volumePreferences.getFloat("volume", (float)maxNoise);
         cueNoise = whiteNoiseVolume+CUE_NOISE_OFFSET;
         volumeBar = findViewById(R.id.volumeBar);
         int displayVolume = (int) (whiteNoiseVolume * volumeBar.getMax());
@@ -1041,7 +1041,7 @@ public class MainActivity extends AppCompatActivity {
                         fitbitBuffer = fitbitBuffer + fitbitStatus + "," + staging + "\n";
                         fitbitCount++;
                         cal = Calendar.getInstance();
-                        String filename = "/" + cal.get(Calendar.MONTH)+"-"+cal.get(Calendar.DATE)+"-"+cal.get(Calendar.YEAR)+"_fitbitdata.txt";
+                        String filename = "/" + cal.get(Calendar.YEAR) +"-"+ cal.get(Calendar.MONTH) +"-"+ cal.get(Calendar.DATE) +"_fitbitdata.txt";
                         if (fitbitCount > FITBIT_WRITE_INTERVAL) {
                             try {
                                 FileWriter fileWriter = new FileWriter(storageDirectory + filename, true);
@@ -1076,7 +1076,7 @@ public class MainActivity extends AppCompatActivity {
                         if (fitbitCount > FITBIT_WRITE_INTERVAL) {
                             try {
                                 cal = Calendar.getInstance();
-                                String filename = "/" + cal.get(Calendar.MONTH)+"-"+cal.get(Calendar.DATE)+"-"+cal.get(Calendar.YEAR)+"_fitbitdata.txt";
+                                String filename = "/" + cal.get(Calendar.YEAR) +"-"+ cal.get(Calendar.MONTH) +"-"+ cal.get(Calendar.DATE) +"_fitbitdata.txt";
                                 FileWriter fileWriter = new FileWriter(storageDirectory + filename, true);
                                 PrintWriter printWriter = new PrintWriter(fileWriter);
                                 printWriter.print(fitbitBuffer);  //New line
