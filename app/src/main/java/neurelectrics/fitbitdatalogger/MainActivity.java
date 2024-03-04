@@ -95,8 +95,7 @@ public class MainActivity extends AppCompatActivity {
     int stim_seconds=0;
     double lastpacket=0;
     float targetVolume=1.0f;
-    float volumeInc=(0.05f/200f);
-
+    float volumeInc=0.00025f;
 
     fitbitServer server;
     savedDataServer fileServer;
@@ -928,7 +927,10 @@ public class MainActivity extends AppCompatActivity {
                         targetVolume=1.0f;
                     }
                      */
-                    cueNoise += volumeInc;
+                    if (md.getCueCount() % 4 == 0) {
+                        cueNoise += volumeInc;
+                    }
+
                     if(cueNoise > whiteNoiseVolume+CUE_NOISE_MAX){
                         cueNoise = whiteNoiseVolume+CUE_NOISE_MAX;
                     }
