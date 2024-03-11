@@ -13,6 +13,7 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collections;
@@ -49,7 +50,8 @@ public class MediaHandler {
     private List<Pair> mediaQueue = new ArrayList<Pair>(); // All possible pairs to be played next (no repeats until all sounds played)
     private MediaPlayer mediaPlayer; // The MediaPlayer object used to reference and play sounds
     HashMap<Integer, String> mediaFileNames = new HashMap<>(); // (resID, filename) pairs allow getting filename using resID
-    private Pair<Float, Float> volume = new Pair(1.0f, 1.0f); // Volume to play at
+    Float initVolume = MainActivity.whiteNoiseVolume + MainActivity.CUE_NOISE_OFFSET;
+    private Pair<Float, Float> volume = new Pair(initVolume, initVolume); // Volume to play at
     private int currentMediaID; // resID of the currently playing or last played (if there is a pause) media
     String logFileName = "MediaLog.txt"; //Filename of file to write log data to in internal storage
     private File logFile; // File object for the log file
@@ -60,6 +62,9 @@ public class MediaHandler {
     public boolean filesLoaded=false;
     private int soundsPlayed=100;
     private boolean wasPaused=true;
+    Calendar cal = MainActivity.cal;
+    SimpleDateFormat dateFormat = MainActivity.dateFormat;
+
 
     /**
      * Reads the files and sets up the MediaHandler for audio playback
@@ -162,8 +167,8 @@ public class MediaHandler {
      * Sets up logFile File object. Creates the logFile if it doesn't already exist
      */
     private void setLogFile(){
-        Calendar cal = Calendar.getInstance();
-        this.logFileName = cal.get(Calendar.YEAR) +"-"+ cal.get(Calendar.MONTH) +"-"+ cal.get(Calendar.DATE) +"_MediaLog.txt";
+        String date = dateFormat.format(cal.getTime());
+        this.logFileName = date +"Z_MediaLog.txt";
         logFile = new File(storageDirectory, logFileName);
         if(!logFile.exists()) {
             try {
