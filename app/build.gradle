@@ -3,7 +3,7 @@ apply plugin: 'com.android.application'
 android {
     compileSdkVersion 27
     defaultConfig {
-        applicationId "neurelectrics.zmaxdatacollector.test"
+        applicationId "neurelectrics.zmaxdatacollector"
         minSdkVersion 23
         targetSdkVersion 26
         versionCode 28

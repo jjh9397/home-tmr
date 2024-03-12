@@ -83,14 +83,14 @@ public class MainActivity extends AppCompatActivity {
     float E_STOP=0.85f; //emergency stop cueing
     int BACKOFF_TIME=5*60000;
     int MAX_STIM=2000;
-    public static float CUE_NOISE_OFFSET=0.025f; //how much louder is the cue than the white noise
+    public static float CUE_NOISE_OFFSET=0.15f; //how much louder is the cue than the white noise
     float CUE_NOISE_MAX=CUE_NOISE_OFFSET+0.01f; //how much louder can the cues get than white noise
     float MAX_ADAPTION_STEP=0.015f; //If cues seem to trigger a wakeup, drop the max volume we can reach by this much
     long ONSET_DELAY=60*60*1000; //minimum delay before cues start
     long OFFSET_DELAY=8*60*60*1000;
     String FILE_DATA = ""; //data stored in the "files:" descriptor on github
     int file_count = 0;
-    boolean DEBUG_MODE=true; //if true, app simulates stage 3 sleep
+    boolean DEBUG_MODE=false; //if true, app simulates stage 3 sleep
     boolean TEST_MODE=false; //if true, displays fitbit buffer for testing purposes
     long turnedOnTime=0;
     int above_thresh=0;
@@ -106,7 +106,7 @@ public class MainActivity extends AppCompatActivity {
     ToggleButton tmrStateButton;
     ToggleButton testDataButton;
     MediaPlayer whiteNoise;
-    public static double maxNoise = 0.025;
+    public static double maxNoise = 0.05;
     public static Float whiteNoiseVolume = (float) maxNoise;
     Float cueNoise;
     TextView volumeText;
@@ -202,8 +202,8 @@ public class MainActivity extends AppCompatActivity {
                     if(settingsData.length >= 7){
                         if(settingsData[6].contains("FILES") && cueNoise != null){
                             Log.i("localmedia", "files found,loading...");
-//                            FILE_DATA=settingsData[6];
-                            FILE_DATA = "FILES:go_ad.wav:success_ad.wav:go_bi.wav:success_bi.wav:go_br.wav:success_br.wav:go_pd.wav:success_pd.wav:go_trilat.wav:success_trilat.wav:go_trp.wav:success_trp.wav";
+                            FILE_DATA=settingsData[6];
+//                            FILE_DATA = "FILES:go_ad.wav:success_ad.wav:go_bi.wav:success_bi.wav:go_br.wav:success_br.wav:go_pd.wav:success_pd.wav:go_trilat.wav:success_trilat.wav:go_trp.wav:success_trp.wav";
                             file_count = FILE_DATA.length() - FILE_DATA.replace(".", "").length();
                             Log.i("filedata",FILE_DATA);
                             MediaHandler overrideHandler = new GitMediaHandler(getApplicationContext(), settingsData[6]);
@@ -1084,7 +1084,6 @@ public class MainActivity extends AppCompatActivity {
                         fitbitCount++;
                         if (fitbitCount > FITBIT_WRITE_INTERVAL) {
                             try {
-//                                String filename = "/" + cal.get(Calendar.YEAR) +"-"+ cal.get(Calendar.MONTH) +"-"+ cal.get(Calendar.DATE) +"_fitbitdata.txt";
                                 String date = dateFormat.format(cal.getTime());
                                 String filename = "/" + date +"Z_fitbitdata.txt";
                                 FileWriter fileWriter = new FileWriter(storageDirectory + filename, true);
