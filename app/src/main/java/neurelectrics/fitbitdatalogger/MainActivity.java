@@ -11,15 +11,11 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
-import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.media.AudioManager;
 import android.media.MediaPlayer;
-import android.media.ToneGenerator;
-import android.os.AsyncTask;
 import android.os.BatteryManager;
 import android.os.Build;
-import android.os.Environment;
 import android.os.Handler;
 import android.os.PowerManager;
 import android.os.StrictMode;
@@ -43,8 +39,8 @@ import com.github.javiersantos.appupdater.AppUpdater;
 import com.github.javiersantos.appupdater.enums.UpdateFrom;
 import com.jakewharton.processphoenix.ProcessPhoenix;
 
-import org.apache.commons.math3.stat.descriptive.moment.StandardDeviation;
 //import org.apache.http.client.methods.HttpPost;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -57,19 +53,28 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
-import java.net.Socket;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.security.Provider;
+import java.security.Security;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Calendar;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TimeZone;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import fi.iki.elonen.NanoHTTPD;
+
+import net.schmizz.sshj.SSHClient;
+import net.schmizz.sshj.sftp.SFTPClient;
+import net.schmizz.sshj.userauth.keyprovider.KeyProvider;
+import net.schmizz.sshj.xfer.FileSystemFile;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -125,6 +130,9 @@ public class MainActivity extends AppCompatActivity {
     public static final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH-mm-ss");
 
     boolean conFixArm=false; //whether the app can self-restart
+    volatile boolean uploadStart=false;
+    volatile boolean uploadEnd=false;
+
     int getWordAt(String[] data,int position) { //get the word (two bytes) from the zMax hex data stream and combine them to make an int
         int data1 = (int) Long.parseLong(data[position], 16); //first two digits are EEG channel 1
         int data2 = (int) Long.parseLong(data[position+1], 16);
@@ -481,18 +489,191 @@ public class MainActivity extends AppCompatActivity {
         backoff_time=System.currentTimeMillis()+BACKOFF_TIME;
         stim_seconds=0;
     }
+
+    /**
+     * Reset Security Provider to use newest version.
+     * Call during setup, before using SSH.
+     */
+    private void setupBouncyCastle() {
+        final Provider provider = Security.getProvider(BouncyCastleProvider.PROVIDER_NAME);
+        if (provider == null) {
+            return;
+        }
+        if (provider.getClass().equals(BouncyCastleProvider.class)) {
+            // BC with same package name, shouldn't happen in real life.
+            return;
+        }
+        // Android registers its own BC provider. As it might be outdated and might not include
+        // all needed ciphers, we substitute it with a known BC bundled in the app.
+        // Android's BC has its package rewritten to "com.android.org.bouncycastle" and because
+        // of that it's possible to have another BC implementation loaded in VM.
+        Security.removeProvider(BouncyCastleProvider.PROVIDER_NAME);
+        Security.insertProviderAt(new BouncyCastleProvider(), 1);
+    }
+
+    /**
+     * Records file as uploaded.
+     */
+    private void logUpload(File file, BufferedWriter writer) throws IOException {
+        String s = file.getName();
+        if (s.endsWith(".txt") && !s.equals("modelSettings.txt") && !s.equals("userID.txt")) {
+            writer.write(s);
+            writer.newLine();
+        }
+    }
+
+    /**
+     * Calculate the files that need to be uploaded by comparing
+     * the local uploaded list and the files on device.
+     */
+    private List<File> calculateUploadList() {
+        File uploaded = new File(storageDirectory, "uploaded");
+        if (!uploaded.exists()) {
+            return new ArrayList<>(Arrays.asList(storageDirectory.listFiles()));
+        }
+
+        List<String> uploadedFiles = new ArrayList<>();
+
+        try (BufferedReader reader = new BufferedReader(new FileReader(uploaded))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                uploadedFiles.add(line);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        List<File> allFiles = new ArrayList<>(Arrays.asList(storageDirectory.listFiles()));
+        List<String> all = new ArrayList<>();
+        String s;
+        for (File f : allFiles) {
+            s = f.getName();
+            if (s.endsWith(".txt")) {
+                all.add(s);
+            }
+        }
+
+        List<String> diff = new ArrayList<>(all);
+        diff.removeAll(uploadedFiles);
+
+        List<File> diffFiles = new ArrayList<>();
+        for (String d : diff) {
+            diffFiles.add(new File(storageDirectory, d));
+        }
+
+        return diffFiles;
+    }
+
+    /**
+     * Opens an SFTP connection to upload files.
+     * Hostname, port, username are determined based off the android_known_hosts file
+     * placed in storageDirectory, requires the username@servername from the host
+     * public key as an ending comment to automatically extract correct login.
+     */
+    private void uploadData() {
+        List<File> files = calculateUploadList();
+        try (SSHClient ssh = new SSHClient()) {
+            File hosts = new File(storageDirectory,"android_known_hosts");
+            ssh.loadKnownHosts(hosts);
+
+            // Extract login hostname, port, and username from android_know_hosts
+            // From format "[hostname]:port ssh-ed25519 PUBLIC-KEY username@servername"
+            Pattern pattern = Pattern.compile("\\[(.*)]:(\\d+) .*? .*? (.*)@");
+            String host;
+            String port;
+            String user;
+            try (BufferedReader reader = new BufferedReader(new FileReader(hosts))) {
+                String line = reader.readLine();
+                Matcher matcher = pattern.matcher(line);
+                if (matcher.find()) {
+                    host = matcher.group(1);
+                    port = matcher.group(2);
+                    user = matcher.group(3);
+
+                    Log.i("backup", "Hostname: " + host);
+                    Log.i("backup", "Port: " + port);
+                    Log.i("backup", "User: " + user);
+                }
+                else {
+                    Log.e("backup", "known_hosts could not be parsed");
+                    throw new IOException();
+                }
+            }
+
+            // Create connection, timeout to quit if backup server is not online
+            ssh.setConnectTimeout(30 * 1000);
+            ssh.connect(host, Integer.parseInt(port));
+            Log.i("backup", "CONNECTED");
+
+            // Create writer for logging uploaded files
+            File output = new File(storageDirectory, "uploaded");
+            BufferedWriter writer = new BufferedWriter(new FileWriter(output, true));
+
+            try {
+                // Authenticate using key files in app storageDirectory
+                File privateKey = new File(storageDirectory, "android_ed25519");
+                KeyProvider keys = ssh.loadKeys(privateKey.getPath());
+                ssh.authPublickey(user, keys);
+
+                // Transfer files to remote server, into USER_ID/date folder within
+                // configured Chroot folder
+                String date = dateFormat.format(cal.getTime()) + "CST";
+                try (SFTPClient sftp = ssh.newSFTPClient()) {
+                    sftp.mkdirs(USER_ID+"/"+date);
+                    for (File f : files) {
+                        if (f.getName().endsWith(".txt")) {
+                            sftp.put(new FileSystemFile(f), "/"+USER_ID+"/"+date);
+
+                            Log.i("backup", f.getName());
+                            logUpload(f, writer);
+                        }
+                    }
+                }
+
+            } finally {
+                ssh.disconnect();
+                Log.i("backup", "UPLOAD COMPLETE");
+                writer.close();
+            }
+        } catch (IOException e) {
+            Log.e("backup", "File Upload IOException");
+            Log.e("backup", e.toString());
+            e.printStackTrace();
+        }
+        uploadEnd = true;
+        finish();
+        System.exit(0);
+    }
+
+    /**
+     * Starts a new thread to run the upload to avoid clogging main thread
+     */
+    private void startUpload() {
+        uploadStart = true;
+        Thread thread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                uploadData();
+            }
+        });
+        thread.start();
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
         // from https://stackoverflow.com/a/63386527 to find resource leaks
-        try {
-            Class.forName("dalvik.system.CloseGuard")
-                    .getMethod("setEnabled", boolean.class)
-                    .invoke(null, true);
-        } catch (ReflectiveOperationException e) {
-            throw new RuntimeException(e);
-        }
+//        try {
+//            Class.forName("dalvik.system.CloseGuard")
+//                    .getMethod("setEnabled", boolean.class)
+//                    .invoke(null, true);
+//        } catch (ReflectiveOperationException e) {
+//            throw new RuntimeException(e);
+//        }
+
+        setupBouncyCastle();
+        dateFormat.setTimeZone(TimeZone.getTimeZone("America/Chicago"));
 
         final Context cont = this;
         storageDirectory = cont.getExternalFilesDir(null);
@@ -560,7 +741,15 @@ public class MainActivity extends AppCompatActivity {
                 wakeLock.release();
                 server.stop();
                 server=null;
-                System.exit(0);
+
+                if (uploadStart) {
+                    // close app, let upload function end process once done
+                    finish();
+                }
+                else {
+                    finish();
+                    System.exit(0);
+                }
             }
         });
         //set up the audio player
@@ -709,7 +898,13 @@ public class MainActivity extends AppCompatActivity {
                     stim_seconds = 0;
                     cueNoise = whiteNoiseVolume+CUE_NOISE_OFFSET;
                     mdtest.setMediaVolume(cueNoise, cueNoise);
-                    ProcessPhoenix.triggerRebirth(getApplicationContext()); //completely reset the configuration by restarting the app
+
+                    // close app, let upload function end process
+                    if (!uploadStart) {
+                        startUpload();
+                    }
+                    finish();
+//                    ProcessPhoenix.triggerRebirth(getApplicationContext()); //completely reset the configuration by restarting the app
                 }
             }
         });
@@ -1050,7 +1245,7 @@ public class MainActivity extends AppCompatActivity {
                         fitbitBuffer = fitbitBuffer + fitbitStatus + "," + staging + "\n";
                         fitbitCount++;
                         String date = dateFormat.format(cal.getTime());
-                        String filename = "/" + date +"Z_fitbitdata.txt";
+                        String filename = "/" + date +"CST_fitbitdata.txt";
                         if (fitbitCount > FITBIT_WRITE_INTERVAL) {
                             try {
                                 FileWriter fileWriter = new FileWriter(storageDirectory + filename, true);
@@ -1085,7 +1280,7 @@ public class MainActivity extends AppCompatActivity {
                         if (fitbitCount > FITBIT_WRITE_INTERVAL) {
                             try {
                                 String date = dateFormat.format(cal.getTime());
-                                String filename = "/" + date +"Z_fitbitdata.txt";
+                                String filename = "/" + date +"CST_fitbitdata.txt";
                                 FileWriter fileWriter = new FileWriter(storageDirectory + filename, true);
                                 PrintWriter printWriter = new PrintWriter(fileWriter);
                                 printWriter.print(fitbitBuffer);  //New line

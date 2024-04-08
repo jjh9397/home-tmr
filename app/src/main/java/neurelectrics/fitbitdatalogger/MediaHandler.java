@@ -168,7 +168,7 @@ public class MediaHandler {
      */
     private void setLogFile(){
         String date = dateFormat.format(cal.getTime());
-        this.logFileName = date +"Z_MediaLog.txt";
+        this.logFileName = date +"CST_MediaLog.txt";
         logFile = new File(storageDirectory, logFileName);
         if(!logFile.exists()) {
             try {
