@@ -850,12 +850,12 @@ public class MainActivity extends AppCompatActivity {
         tmrStateButton.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
                 if (isChecked) {
-                    //this allows the sound to be turned on between 07:00 and 20:00 (when the fitbit is not sending data) for in-lab volume calibration
-                    Calendar now = Calendar.getInstance();
-                    int hour=now.get(Calendar.HOUR_OF_DAY);
-
                     if (isPluggedIn()) {
-                        if (System.currentTimeMillis() - lastpacket < 10000 || DEBUG_MODE || (hour >= 7 && hour <= 20)) {
+                        // sanity check to disallow recording start without fitbit connection even if
+                        // currentTimeMillis() somehow gives an incorrect value
+                        double curr = System.currentTimeMillis();
+                        if (((curr > 0) && (lastpacket > 0) && (curr - lastpacket < 10000))
+                                || DEBUG_MODE) {
                             resetStim();
                             whiteNoise.start();
                             tmrStateButton.setBackgroundColor(Color.parseColor("#FF0000"));
