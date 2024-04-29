@@ -445,12 +445,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void openDreem(){
-        Intent launchIntent = getPackageManager().getLaunchIntentForPackage("co.rythm.dreem.med");
+        Intent launchIntent = getPackageManager().getLaunchIntentForPackage("com.interaxon.muse");
         if (launchIntent != null) {
             startActivity(launchIntent);//null pointer check in case package name was not found
-            System.out.println("DREEM APPLICATION OPENED");
-        } else{
-            System.out.println("DREEM APPLICATION NOT FOUND");
         }
     }
 
@@ -902,6 +899,10 @@ public class MainActivity extends AppCompatActivity {
                     // close app, let upload function end process
                     if (!uploadStart) {
                         startUpload();
+                    }
+                    Intent launchIntent = getPackageManager().getLaunchIntentForPackage("com.interaxon.muse");
+                    if (launchIntent != null) {
+                        startActivity(launchIntent);//null pointer check in case package name was not found
                     }
                     finish();
 //                    ProcessPhoenix.triggerRebirth(getApplicationContext()); //completely reset the configuration by restarting the app
