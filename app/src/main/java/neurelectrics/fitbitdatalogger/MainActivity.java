@@ -359,7 +359,7 @@ public class MainActivity extends AppCompatActivity {
                 //LINK TO SETTINGS PER USER:
 
                 // todo: make it so the user can place a file here instead of reading this URL every time
-                String settingsDataLink = "https://raw.githubusercontent.com/nathanww/stroke-tmr-settings/main/SETTINGS.txt";
+                String settingsDataLink = "https://raw.githubusercontent.com/SNEUP/stroke-tmr-settings/main/SETTINGS.txt";
                 List<String[]> settingsData = new ArrayList<>();
                 try {
                     URL url = new URL(settingsDataLink);
