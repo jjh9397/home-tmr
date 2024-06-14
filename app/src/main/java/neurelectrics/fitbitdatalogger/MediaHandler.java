@@ -13,7 +13,9 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -40,7 +42,7 @@ public class MediaHandler {
      */
 
     private final static int DELAY = 10000;
-    private final boolean GUARD_SOUND=true;
+    private final boolean GUARD_SOUND=false;
     private boolean isDelaying = false;
     private List<Pair<Float, Integer>> mediaData; // Sorted by score (Score, Resource Identifier) pairs
     private Pair<List<Pair<Float, Integer>>, List<Pair<Float, Integer>>> mediaDataHalves; // Odd- & even-  indexed halves of mediaData
@@ -48,7 +50,8 @@ public class MediaHandler {
     private List<Pair> mediaQueue = new ArrayList<Pair>(); // All possible pairs to be played next (no repeats until all sounds played)
     private MediaPlayer mediaPlayer; // The MediaPlayer object used to reference and play sounds
     HashMap<Integer, String> mediaFileNames = new HashMap<>(); // (resID, filename) pairs allow getting filename using resID
-    private Pair<Float, Float> volume = new Pair(1.0f, 1.0f); // Volume to play at
+    Float initVolume = MainActivity.whiteNoiseVolume + MainActivity.CUE_NOISE_OFFSET;
+    private Pair<Float, Float> volume = new Pair(initVolume, initVolume); // Volume to play at
     private int currentMediaID; // resID of the currently playing or last played (if there is a pause) media
     String logFileName = "MediaLog.txt"; //Filename of file to write log data to in internal storage
     private File logFile; // File object for the log file
@@ -59,13 +62,17 @@ public class MediaHandler {
     public boolean filesLoaded=false;
     private int soundsPlayed=100;
     private boolean wasPaused=true;
+    Calendar cal = MainActivity.cal;
+    SimpleDateFormat dateFormat = MainActivity.dateFormat;
+
 
     /**
      * Reads the files and sets up the MediaHandler for audio playback
      */
     public void readFiles() {
 
-            storageDirectory = Environment.getExternalStorageDirectory();
+//            storageDirectory = Environment.getExternalStorageDirectory();
+            storageDirectory = context.getExternalFilesDir(null);
             System.out.println("dir:" + storageDirectory.toString());
             setLogFile();
             mediaData = getSortedMediaData();
@@ -160,6 +167,8 @@ public class MediaHandler {
      * Sets up logFile File object. Creates the logFile if it doesn't already exist
      */
     private void setLogFile(){
+        String date = dateFormat.format(cal.getTime());
+        this.logFileName = date +"CST_MediaLog.txt";
         logFile = new File(storageDirectory, logFileName);
         if(!logFile.exists()) {
             try {
@@ -196,6 +205,7 @@ public class MediaHandler {
         String timeStamp = String.valueOf(System.currentTimeMillis());
         String line = timeStamp + "," + signal + "," + String.valueOf(mediaLength) + "," +
                 String.valueOf(leftVolume) + "," + String.valueOf(rightVolume);
+        Log.i("medialog",line);
         try {
             logFileWriter.write(line);
             logFileWriter.newLine();
@@ -327,12 +337,13 @@ public class MediaHandler {
     List<Pair<Float, Integer>> getMediaData(){
         final List<String> mediaFileLines = readMediaFile();
         System.out.println(mediaFileLines);
+        Log.i("mediaFileLines", mediaFileLines.toString());
         final List<Pair<Float, Integer>> mediaData = new ArrayList<>();
         for(String line: mediaFileLines){
             String[] brokenUp = line.split(":");
             final Float score = Float.valueOf(brokenUp[0]);
             String resID="myoci1";
-            if (brokenUp[1].indexOf(".wav") > -1) {
+            if (brokenUp[1].contains(".wav")) {
                 resID = brokenUp[1].split("\\.")[0];
             }
             else if (brokenUp.length >= 4) {
@@ -350,13 +361,15 @@ public class MediaHandler {
      * Locates media data file, then gets all of the lines of the media data file
      * @return List of all the lines in a media data file
      */
-    private List<String> readMediaFile(){
+    private List<String> readMediaFile() {
+        boolean foundFile=false;
         List<String> mediaLines = new ArrayList<>();
         try {
             for(File file: storageDirectory.listFiles()) {
                 String fileName = file.getName();
                 // TODO: if BedtimeTaskLog has a sound not compiled in the app, look for a file with that name in the root of the phone's storage and play it
                 if (fileName.contains(("BedtimeTaskLog"))) {
+                    foundFile=true;
                     BufferedReader reader = new BufferedReader(new FileReader(file));
                     System.out.println("1");
                     String firstLine = reader.readLine();
@@ -364,11 +377,15 @@ public class MediaHandler {
                         String line;
                         while ((line = reader.readLine()) != null)
                             mediaLines.add(line);
+                        reader.close();
                         return mediaLines;
                 }
             }
         } catch (Exception e) {
             e.printStackTrace();
+        }
+        if (!foundFile) { //fallback to keep the app from crashing if the file was not found and we haven't loaded data from the server yet
+            mediaLines.add("0:0:0:0:silent.wav:0");
         }
         return mediaLines; // Returns empty list if no valid file was found
     }
