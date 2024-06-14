@@ -799,7 +799,11 @@ public class MainActivity extends AppCompatActivity {
         whiteNoiseVolume = volumePreferences.getFloat("volume", (float)maxNoise);
         cueNoise = whiteNoiseVolume+CUE_NOISE_OFFSET;
         volumeBar = findViewById(R.id.volumeBar);
-        int displayVolume = (int) (whiteNoiseVolume * volumeBar.getMax());
+        int displayVolume = (int) (whiteNoiseVolume * volumeBar.getMax() / maxNoise);
+
+        Log.i("volume", whiteNoiseVolume.toString());
+        Log.i("volume", String.valueOf(displayVolume));
+        Log.i("volume", String.valueOf(volumeBar.getMax()));
 
         volumeBar.setProgress(displayVolume);
         volumeText = findViewById(R.id.volumeText);
