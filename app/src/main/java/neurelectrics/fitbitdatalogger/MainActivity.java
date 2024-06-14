@@ -104,12 +104,13 @@ public class MainActivity extends AppCompatActivity {
     double lastpacket=0;
     float targetVolume=1.0f;
     float volumeInc=0.00025f;
-
+    String hrCurrent;
     fitbitServer server;
     savedDataServer fileServer;
     String fitbitStatus="";
     ToggleButton tmrStateButton;
     ToggleButton testDataButton;
+    ToggleButton debugModeButton;
     MediaPlayer whiteNoise;
     public static double maxNoise = 0.05;
     public static Float whiteNoiseVolume = (float) maxNoise;
@@ -677,11 +678,11 @@ public class MainActivity extends AppCompatActivity {
         //  storageDirectory = Environment.getExternalStorageDirectory(); // old, stores in root
         Log.i("fitbit","oncreate was called");
         getUserSettings();
-         AppUpdater ud=new AppUpdater(this);
-                ud.setUpdateFrom(UpdateFrom.JSON)
+        AppUpdater ud=new AppUpdater(this);
+        ud.setUpdateFrom(UpdateFrom.JSON)
                 .setUpdateJSON("https://raw.githubusercontent.com/nathanww/home-tmr/stroke2/app/release/update.json")
                 .start();
-                // todo: figure out how this updater works
+        // todo: figure out how this updater works
 
         //we need runtime permission to create files in the shared storage, so request it
         int check = ActivityCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE);
@@ -749,6 +750,7 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         });
+
         //set up the audio player
         //final MediaPlayer mp = MediaPlayer.create(this, R.raw.sleepmusic);
 
@@ -844,6 +846,14 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+        debugModeButton = findViewById(R.id.debugMode);
+        debugModeButton.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton compoundButton, boolean isChecked) {
+                DEBUG_MODE = isChecked;
+            }
+        });
+
         tmrStateButton.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
                 if (isChecked) {
@@ -851,8 +861,8 @@ public class MainActivity extends AppCompatActivity {
                         // sanity check to disallow recording start without fitbit connection even if
                         // currentTimeMillis() somehow gives an incorrect value
                         double curr = System.currentTimeMillis();
-                        if (((curr > 0) && (lastpacket > 0) && (curr - lastpacket < 10000))
-                                || DEBUG_MODE) {
+                        if (((curr > 0) && (lastpacket > 0) && (curr - lastpacket < 10000) && !(hrCurrent == null)
+                                && !hrCurrent.equals("0") || DEBUG_MODE)) {
                             resetStim();
                             whiteNoise.start();
                             tmrStateButton.setBackgroundColor(Color.parseColor("#FF0000"));
@@ -878,15 +888,15 @@ public class MainActivity extends AppCompatActivity {
                     else { //phone is not plugged in, so show an error message
                         tmrStateButton.setChecked(false);
 
-                            AlertDialog alertDialog = new AlertDialog.Builder(MainActivity.this).create();
-                            alertDialog.setTitle("Phone not plugged in");
-                            alertDialog.setMessage("The phone must be plugged in to its charger to start");
-                            alertDialog.setButton(AlertDialog.BUTTON_NEUTRAL, "OK",
-                                    new DialogInterface.OnClickListener() {
-                                        public void onClick(DialogInterface dialog, int which) {
-                                            dialog.dismiss();
-                                        }
-                                    });
+                        AlertDialog alertDialog = new AlertDialog.Builder(MainActivity.this).create();
+                        alertDialog.setTitle("Phone not plugged in");
+                        alertDialog.setMessage("The phone must be plugged in to its charger to start");
+                        alertDialog.setButton(AlertDialog.BUTTON_NEUTRAL, "OK",
+                                new DialogInterface.OnClickListener() {
+                                    public void onClick(DialogInterface dialog, int which) {
+                                        dialog.dismiss();
+                                    }
+                                });
                         alertDialog.show();
                     }
                 } else {
@@ -1273,7 +1283,7 @@ public class MainActivity extends AppCompatActivity {
 
                         fitbitStatus = parameters.toString().split("data=\\{")[1];
 
-                        String hrCurrent = (fitbitParams[1]); //HEART RATE
+                        hrCurrent = (fitbitParams[1]); //HEART RATE
                         String batteryCurrent = (fitbitParams[19].split("STAGE")[0].replace("}", "")); //BATTERY
                         //Log.e("fitbit",fitbitStatus);
                         fitbitBuffer = fitbitBuffer + fitbitStatus + "," + staging + "\n";
@@ -1368,8 +1378,8 @@ public class MainActivity extends AppCompatActivity {
              */
             }
 
-                return newFixedLengthResponse(Response.Status.OK, "normal", "");
-            }
+            return newFixedLengthResponse(Response.Status.OK, "normal", "");
+        }
 
     }
 
@@ -1555,7 +1565,7 @@ public class MainActivity extends AppCompatActivity {
                 System.out.println(line);
                 String[] broken = line.split("_");
                 for (String i:
-                     broken) {
+                        broken) {
                     System.out.println(i);
                 }
                 LineNumber = Integer.parseInt(broken[1]);
