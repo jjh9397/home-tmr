@@ -190,6 +190,27 @@ public class MainActivity extends AppCompatActivity {
     /**
      * Reads the default setting file from internal storage root and sets parameters.
      */
+    private void testFiles(){
+        File testFile = new File(this.getExternalFilesDir(null), "test.txt");
+        try {
+            testFile.createNewFile();
+            BufferedWriter writer = new BufferedWriter(new FileWriter(testFile));
+            String msg = "message";
+            writer.write(msg);
+            writer.close();
+            BufferedReader reader = new BufferedReader(new FileReader(testFile));
+            String read = reader.readLine();
+            reader.close();
+            Log.i("fileTest", read);
+        } catch (IOException e) {
+            Log.i("fileTest", "unable to create new file");
+            throw new RuntimeException(e);
+        }
+        //BufferedReader reader = new BufferedReader(new FileReader(testFile));
+        //reader.read
+        //Log.i("reader", )
+    }
+
     private void setSettingsFromDefault(){
         File settingsFile = new File(storageDirectory, DEFAULT_SETTINGS_FILE_NAME);
         try {
@@ -677,6 +698,7 @@ public class MainActivity extends AppCompatActivity {
         storageDirectory = cont.getExternalFilesDir(null);
         //  storageDirectory = Environment.getExternalStorageDirectory(); // old, stores in root
         Log.i("fitbit","oncreate was called");
+        testFiles();
         getUserSettings();
         AppUpdater ud=new AppUpdater(this);
         ud.setUpdateFrom(UpdateFrom.JSON)
@@ -684,12 +706,12 @@ public class MainActivity extends AppCompatActivity {
                 .start();
         // todo: figure out how this updater works
 
-        //we need runtime permission to create files in the shared storage, so request it
-        int check = ActivityCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE);
-        while (check != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},1024);
-            check = ActivityCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE);
-        }
+        //we need runtime permission to create files in the shared storage, so request it -- not needed for API 30
+        //int check = ActivityCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE);
+        //while (check != PackageManager.PERMISSION_GRANTED) {
+            //requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},1024);
+            //check = ActivityCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE);
+        //}
         probBuffer.add(0.01f);
         probBuffer.add(0.01f);
         //prevent the CPU from sleeping
@@ -865,8 +887,15 @@ public class MainActivity extends AppCompatActivity {
                         // sanity check to disallow recording start without fitbit connection even if
                         // currentTimeMillis() somehow gives an incorrect value
                         double curr = System.currentTimeMillis();
-                        if (((curr > 0) && (lastpacket > 0) && (curr - lastpacket < 10000) && !(hrCurrent == null)
-                                && !hrCurrent.equals("0") || DEBUG_MODE)) {
+                        if (hrCurrent == null) {
+                            Log.i("hr", "null");
+                        }
+                        else {
+                            Log.i("hr", hrCurrent);
+                        }
+                        if (((curr > 0) && (lastpacket > 0) && (curr - lastpacket < 10000)
+                                && !(hrCurrent == null) && (!hrCurrent.equals("0"))
+                            || DEBUG_MODE)) {
                             resetStim();
                             whiteNoise.start();
                             tmrStateButton.setBackgroundColor(Color.parseColor("#FF0000"));
@@ -1200,7 +1229,15 @@ public class MainActivity extends AppCompatActivity {
                         fStatus.setTextColor(Color.WHITE);
                     }
                 });
+
+
+                // Check heart rate status before  to start program
                 ToggleButton tmrStateButton = findViewById(R.id.tmrState);
+                if(!tmrStateButton.isChecked()){
+                    String[] fitbitParams = parameters.toString().replace(":", ",").split(","); //split up individual data vals, simplify to only get hr
+
+                    hrCurrent = fitbitParams[1]; //HEART RATE
+                }
                 if (tmrStateButton.isChecked()) { //only do the rest if the TMR has actually been turned on
 
 
